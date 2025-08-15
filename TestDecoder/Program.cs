@@ -31,13 +31,14 @@ namespace TestDecoder
 				//var hex = BitConverter.ToString(downSampled);
 				//File.AppendAllTextAsync(Path.Combine(Environment.CurrentDirectory, "logNew.txt", hex, System.Text.Encoding.ASCII);
 
-				FDecoder.Write(e.Buffer, e.BytesRecorded, 0);
+				FDecoder.Write(downSampled, e.BytesRecorded / 2, 0);
+                //Console.Out.WriteLine("AudioReceived");
 			}
 		}
 
 		static void WaveInExample()
 		{
-			var waveIn = new WasapiCapture();
+			var waveIn = new WasapiCapture(WasapiCapture.GetDefaultCaptureDevice(), false, 345);
 			waveIn.WaveFormat = new WaveFormat(44100, 8, 1);
 
 			Console.WriteLine("Device format: " + waveIn.WaveFormat.ToString());
