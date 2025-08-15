@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "TestDecoder": {
+      "commandName": "Project",
+      "nativeDebugging": false
+    }
+  }
+}
