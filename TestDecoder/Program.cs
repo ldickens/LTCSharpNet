@@ -1,7 +1,5 @@
-﻿using NAudio;
-using NAudio.CoreAudioApi;
+﻿using NAudio.CoreAudioApi;
 using NAudio.Wave;
-using System.Windows.Forms;
 
 namespace TestDecoder
 {
