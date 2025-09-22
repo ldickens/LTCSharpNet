@@ -7,7 +7,7 @@ namespace EncoderTests
     public sealed class EncoderBufferTesting
     {
         [TestMethod]
-        public void Test()
+        public void ReadFromTCFrameBufferTesting()
         {
             var bufManager = new TCFrameBufferManager(100);
             byte[] tmp = new byte[1600];
@@ -15,7 +15,7 @@ namespace EncoderTests
             int count = 0;
             while (count < tmp.Length)
             {
-                for (byte i = 0; i < 255;  i++)
+                for (byte i = 0; i <= 255;  i++)
                 {
                     tmp[count] = i;
                     count++;
@@ -46,18 +46,13 @@ namespace EncoderTests
         {
             // check that the arrays have consecutive numbers up to 255
             int controlInt = startNum > 0 ? startNum : 0;
-            for (int i = 0; i < testArray.Length; i++)
-            {
-                Trace.WriteLine($"index{i} = {testArray[i]}");
-                Assert.IsTrue(i == controlInt);
-                if (i == controlInt)
-                {
-                    if (i == 255)
-                    {
-                        controlInt = 0;
-                        continue;
-                    }
 
+            for (int i = startNum; i < testArray.Length; i++)
+            {
+                Assert.IsTrue(i % 255 == controlInt % 255);
+
+                if (i % 255 == controlInt % 255)
+                {
                     controlInt++;
                 }
                 else

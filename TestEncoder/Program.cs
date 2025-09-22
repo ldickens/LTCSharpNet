@@ -67,7 +67,7 @@ namespace TestEncoder
     public class TCRingBuffer
     {
         private readonly byte[] m_buffer;
-        private int m_tail; // next read position
+        private int m_tail; // Read position
         private const int m_maxSize = 1600; // size of a singular frame of smpte timecode data
         private object m_lock = new();
 
@@ -92,24 +92,38 @@ namespace TestEncoder
             }
         }
 
+        // Receiving buffer can vary in size, we should provide consecutive data
+        // to this buffer which may include multiple duplicates of frame audio tc data.
         public byte[] Read(int size)
         {
             lock (m_lock)
             {
                 int count = 0;
-                int tmpHead = 0;
+                int tmpHead = 0; // Write position of receiving buffer
                 byte[] tmp = new byte[size];
+
                 while (count < size)
                 {
                     int chunkSize = m_buffer.Length - m_tail;
+
                     if (chunkSize > (size - count))
                     {
                         chunkSize = (size - count);
                     }
+
                     Buffer.BlockCopy(m_buffer, m_tail, tmp, tmpHead, chunkSize);
-                    // figure out the m_tail updating position.
+
+                    if (m_tail == m_buffer.Length)
+                    {
+                        m_tail = 0;
+                    }
+                    else
+                    {
+                        m_tail += chunkSize;
+                    }
+
                     count += chunkSize;
-                    tmpHead = count - 1;
+                    tmpHead = count;
                 }
                 return tmp;
             }
