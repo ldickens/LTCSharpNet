@@ -1,4 +1,5 @@
 ﻿using System.Diagnostics;
+using System.DirectoryServices;
 using TestEncoder;
 
 namespace EncoderTests 
@@ -6,10 +7,11 @@ namespace EncoderTests
     [TestClass]
     public sealed class EncoderBufferTesting
     {
-        [TestMethod]
-        public void ReadFromTCFrameBufferTesting()
+        private static TCFrameBufferManager m_bufManager = new(100);
+
+        [ClassInitialize]
+        public static void ClassInit(TestContext testContext)
         {
-            var bufManager = new TCFrameBufferManager(100);
             byte[] tmp = new byte[1600];
 
             int count = 0;
@@ -27,19 +29,40 @@ namespace EncoderTests
 
             for (int i = 0; i < 100; i++)
             {
-                bufManager.FillSingularBuffer(i, tmp);
+                m_bufManager.FillSingularBuffer(i, tmp);
             }
+        }
 
-            TCRingBuffer active = bufManager.ActiveBuffer;
-            byte[] firstArray = active.Read(3200);
-            byte[] secondArray = active.Read(300);
+        [TestMethod]
+        public void TCFrameBufferManagerConstructorTest()
+        {
+            TCFrameBufferManager testManager = new(100);
+            Assert.IsTrue(testManager.TotalFrameBuffers == 100);
+        }
+
+        [TestMethod]
+        public void TCRingBufferRead()
+        {
+
+            TCRingBuffer active = m_bufManager.ActiveBuffer;
+            byte[] firstArray = active.Read(3200, out int tail);
 
             Assert.IsTrue(SequentialFrameTesting(firstArray, 0));
 
-            int secondArrayStartingNum = 3200 % 255;
+            byte[] secondArray = active.Read(300, out tail);
 
-            Assert.IsTrue(SequentialFrameTesting(secondArray, secondArrayStartingNum));
+            Assert.IsTrue(SequentialFrameTesting(secondArray, active.Peak()));
 
+        }
+
+        [TestMethod]
+        public void TCFrameBufferManagerReadActiveBufferTest()
+        {
+            byte[] firstArray = m_bufManager.ReadActiveBuffer(1234);
+            byte[] secondArray = m_bufManager.ReadActiveBuffer(6400);
+
+            Assert.IsTrue(SequentialFrameTesting(firstArray, m_bufManager.Peak()));
+            Assert.IsTrue(SequentialFrameTesting(secondArray, m_bufManager.Peak()));
         }
 
         static private bool SequentialFrameTesting(byte[] testArray, int startNum)
@@ -49,6 +72,7 @@ namespace EncoderTests
 
             for (int i = startNum; i < testArray.Length; i++)
             {
+                Trace.WriteLine($"Index={i} : {testArray[i]}");
                 Assert.IsTrue(i % 255 == controlInt % 255);
 
                 if (i % 255 == controlInt % 255)
