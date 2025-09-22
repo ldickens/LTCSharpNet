@@ -10,12 +10,43 @@ namespace TestEncoder
         int m_numOfFrameBuffers = 0;
         int m_activeBufferDataNext = 0;
         const int m_sizeOfFrameBuffer = 1600;
+        int m_head = 0; // Next write position (row) in 2d frameBuffer
+        object m_lock = new();
+        int m_count = 0;
 
         public TCRingBuffer ActiveBuffer => m_activeBuffer;
 
-        public int FrameBufferSize  => m_sizeOfFrameBuffer;
+        public int FrameBufferSize => m_sizeOfFrameBuffer;
 
-        public int TotalFrameBuffers => m_frameBuffers.Length / 1600;
+        public int TotalFrameBuffers => m_numOfFrameBuffers;
+
+        public bool Empty => m_count == 0;
+
+        public bool Full => m_count == m_numOfFrameBuffers;
+
+        public bool AllBuffersFilled
+        {
+            get
+            {
+                for (int i = 0; i < m_numOfFrameBuffers; i++)
+                {
+                    var frameBuffer = GetTCFrameBuffer(i);
+                    int count = 0;
+                    foreach (var data in frameBuffer)
+                    {
+                        count += data == 0 ? 1 : 0;
+                    }
+
+                    if (count == frameBuffer.Length)
+                    {
+                        Debug.Assert(count == frameBuffer.Length, "Should a buffer contain all zeros");
+                        return false;
+                    }
+                }
+
+                return true;
+            }
+        }
 
         public TCFrameBufferManager(int numOfFrames)
         {
@@ -39,10 +70,37 @@ namespace TestEncoder
 
         public void IncrementActiveBuffer()
         {
-            m_activeBufferIndex++;
-            m_activeBuffer.Write(GetTCFrameBuffer(m_activeBufferIndex));
+            lock (m_lock)
+            {
+                m_activeBufferIndex++;
+                m_activeBuffer.Write(GetTCFrameBuffer(m_activeBufferIndex));
+
+                if (m_head)
+            }
         }
 
+        public bool Write(byte[] frameSource)
+        {
+            Debug.Assert(m_count < m_numOfFrameBuffers, "Buffers are all full");
+            if (frameSource.Length != m_sizeOfFrameBuffer || Full) return false;
+
+
+            lock (m_lock)
+            {
+                Buffer.BlockCopy(frameSource, 0, m_frameBuffers, m_head * m_sizeOfFrameBuffer, m_sizeOfFrameBuffer);
+                m_head++;
+                m_count++;
+
+                if (m_head > m_numOfFrameBuffers && !Full)
+                {
+                    m_head = 0;
+                }
+            }
+
+            return true;
+        }
+
+        // This should be removed used in testing
         public void FillSingularBuffer(int index, byte[] source)
         {
             Buffer.BlockCopy(source, 0, m_frameBuffers, index * m_numOfFrameBuffers, m_sizeOfFrameBuffer);
@@ -54,14 +112,20 @@ namespace TestEncoder
 
         public byte[] ReadActiveBuffer(int size)
         {
-            byte[] tmp = m_activeBuffer.Read(size, out m_activeBufferDataNext);
-            Buffer.BlockCopy(tmp, 0, tmp, 0, tmp.Length);
-            return tmp;
+            lock (m_lock)
+            {
+                byte[] tmp = m_activeBuffer.Read(size, out m_activeBufferDataNext);
+                Buffer.BlockCopy(tmp, 0, tmp, 0, tmp.Length);
+                return tmp;
+            }
         }
 
         public byte Peak()
         {
-            return m_activeBuffer.Peak();
+            lock (m_lock)
+            {
+                return m_activeBuffer.Peak();
+            }
         }
     }
 
