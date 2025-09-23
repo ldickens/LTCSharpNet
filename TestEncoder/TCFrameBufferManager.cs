@@ -74,8 +74,12 @@ namespace TestEncoder
             {
                 m_activeBufferIndex++;
                 m_activeBuffer.Write(GetTCFrameBuffer(m_activeBufferIndex));
+                m_head++;
 
-                if (m_head)
+                if (m_head > m_numOfFrameBuffers && !Full)
+                {
+                    m_head = 0;
+                }
             }
         }
 

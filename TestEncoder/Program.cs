@@ -14,46 +14,44 @@ namespace TestEncoder
     {
         LTCSharpNet.Encoder m_encoder;
         string m_currentTC = "";
-        //private readonly object m_lock = new();
         bool m_encoding = false;
         long m_fps = 0;
-        long m_frametime = 0;
+        long m_frameDeltaTime = 0;
         Stopwatch m_timer = new();
-        //Stopwatch m_timer2 = new();
         private const int m_bufSizeSeconds = 2;
-        int m_bufSize; // number of frame stored in buffer
+        int m_bufSize; // number of frames stored in buffer
         TCFrameBufferManager m_bufferManager;
+        int m_frameSizeBytes = 1600; // Number of bytes in a tc frame
+        bool m_encodingTimecode = true;
 
         public Source(long fps)
         {
             m_encoder = new LTCSharpNet.Encoder(48000, fps, LTCSharpNet.TVStandard.TV525_60i, LTCSharpNet.BGFlags.NONE);
             m_fps = fps;
             m_bufSize = (int)fps * m_bufSizeSeconds; // 
-            m_frametime = (TimeSpan.TicksPerSecond / m_fps);
+            m_frameDeltaTime = (1000000 / m_fps); // 1 microsecond / fps
             m_bufferManager = new TCFrameBufferManager(m_bufSize);
+
+            FillBuffers();
         }
 
         public void StartEncoding()
         {
-            byte[] tmp = new byte[1600];
-            m_encoder.getBuffer(tmp, 0);
-            m_circularBuffer.Write(tmp, 0, tmp.Length);
             m_timer.Start();
-
 
             _ = Task.Run(() =>
             {
 
-                int now = m_timer.Elapsed.Milliseconds;
-                int lastFrame = m_timer.Elapsed.Milliseconds;
+                int now = m_timer.Elapsed.Microseconds;
+                int lastFrame = now;
 
-                while (true)
+                while (m_encodingTimecode)
                 {
-                    now = m_timer.Elapsed.Milliseconds;
+                    now = m_timer.Elapsed.Microseconds;
                     int delta = now - lastFrame;
                     lastFrame = now;
 
-                    if (m_timer.ElapsedTicks > m_frametime)
+                    if (delta > m_frameDeltaTime)
                     {
 
                         m_timer.Restart();
@@ -68,7 +66,7 @@ namespace TestEncoder
                     {
                         Thread.Sleep(33 - delta);
                     }
-                    m_circularBuffer.Write(tmp, 0, tmp.Length);
+                    m_bufferManager.Write(tmp);
                 }
             });
         }
@@ -112,7 +110,20 @@ namespace TestEncoder
         public void SetBufferSize(int framesBuffered, double sampleRate, double fps)
         {
             m_encoder.setBufferSize(sampleRate, fps / framesBuffered);
-            //m_encoder.getBuffer(buf, 0);
+        }
+
+        private void FillBuffers()
+        {
+            bool success = true;
+            byte[] tmp = new byte[m_frameSizeBytes];
+
+            for (int i = 0; i <m_bufSize; i++)
+            {
+                m_encoder.getBuffer(tmp, 0);
+                success &= m_bufferManager.Write(tmp);
+            }
+
+            Debug.Assert(success, "FillBuffers is failing to fill all buffers or overflowing");
         }
     }
 
