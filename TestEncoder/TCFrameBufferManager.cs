@@ -8,7 +8,6 @@ namespace TestEncoder
         TCRingBuffer m_activeBuffer;
         int m_activeBufferIndex = 0;
         int m_numOfFrameBuffers = 0;
-        int m_activeBufferDataNext = 0;
         const int m_sizeOfFrameBuffer = 1600;
         int m_head = 0; // Next write position (row) in 2d frameBuffer
         object m_lock = new();
@@ -73,13 +72,14 @@ namespace TestEncoder
             lock (m_lock)
             {
                 m_activeBufferIndex++;
-                m_activeBuffer.Write(GetTCFrameBuffer(m_activeBufferIndex));
-                m_head++;
 
-                if (m_head > m_numOfFrameBuffers && !Full)
+                if (m_activeBufferIndex == m_numOfFrameBuffers)
                 {
-                    m_head = 0;
+                    m_activeBufferIndex = 0;
                 }
+
+                m_activeBuffer.Write(GetTCFrameBuffer(m_activeBufferIndex));
+                m_count--;
             }
         }
 
@@ -92,14 +92,21 @@ namespace TestEncoder
             lock (m_lock)
             {
                 Buffer.BlockCopy(frameSource, 0, m_frameBuffers, m_head * m_sizeOfFrameBuffer, m_sizeOfFrameBuffer);
-                m_head++;
-                m_count++;
 
-                if (m_head > m_numOfFrameBuffers && !Full)
+                if (m_count == 0)
+                {
+                    m_activeBuffer.Write(GetTCFrameBuffer(m_activeBufferIndex));
+                }
+
+                m_count++;
+                m_head++;
+
+                if (m_head >= m_numOfFrameBuffers)
                 {
                     m_head = 0;
                 }
             }
+
 
             return true;
         }
@@ -118,8 +125,8 @@ namespace TestEncoder
         {
             lock (m_lock)
             {
-                byte[] tmp = m_activeBuffer.Read(size, out m_activeBufferDataNext);
-                Buffer.BlockCopy(tmp, 0, tmp, 0, tmp.Length);
+                byte[] tmp = m_activeBuffer.Read(size);
+                //Buffer.BlockCopy(tmp, 0, tmp, 0, tmp.Length);
                 return tmp;
             }
         }
@@ -168,7 +175,7 @@ namespace TestEncoder
 
         // Receiving buffer can vary in size, we should provide consecutive data
         // to this buffer which may include multiple duplicates of frame audio tc data.
-        public byte[] Read(int size, out int tail)
+        public byte[] Read(int size)
         {
             lock (m_lock)
             {
@@ -200,7 +207,6 @@ namespace TestEncoder
                     tmpHead = count;
                 }
 
-                tail = m_tail;
                 return tmp;
             }
         }

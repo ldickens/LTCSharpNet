@@ -5,6 +5,8 @@ using System.Collections.Immutable;
 using System.ComponentModel.Design;
 using System.Diagnostics;
 using System.Reflection.Metadata.Ecma335;
+using System.Runtime.InteropServices;
+using System.Text;
 using System.Threading.Tasks;
 
 namespace TestEncoder
@@ -24,10 +26,11 @@ namespace TestEncoder
         int m_frameSizeBytes = 1600; // Number of bytes in a tc frame
         bool m_encodingTimecode = true;
 
-        public Source(long fps)
+        public Source(long fps, LTCSharpNet.Timecode startTime)
         {
             m_encoder = new LTCSharpNet.Encoder(48000, fps, LTCSharpNet.TVStandard.TV525_60i, LTCSharpNet.BGFlags.NONE);
             m_fps = fps;
+            SetTimecode(startTime);
             m_bufSize = (int)fps * m_bufSizeSeconds; // 
             m_frameDeltaTime = (1000000 / m_fps); // 1 microsecond / fps
             m_bufferManager = new TCFrameBufferManager(m_bufSize);
@@ -35,54 +38,71 @@ namespace TestEncoder
             FillBuffers();
         }
 
-        public void StartEncoding()
+        public async void StartEncoding()
         {
             m_timer.Start();
 
-            _ = Task.Run(() =>
+            await Task.Run(() =>
             {
 
-                int now = m_timer.Elapsed.Microseconds;
-                int lastFrame = now;
+                double now = m_timer.Elapsed.TotalMicroseconds;
+                double previousFrame = now;
+                double delta = 0;
+                //byte[] curFrame = new byte[m_bufSize];
+                byte[] tmp = new byte[m_frameSizeBytes];
 
                 while (m_encodingTimecode)
                 {
-                    now = m_timer.Elapsed.Microseconds;
-                    int delta = now - lastFrame;
-                    lastFrame = now;
+                    now = m_timer.Elapsed.TotalMicroseconds;
+                    delta = now - previousFrame;
 
+                    // if deltatime exceeds frametime, update active buffer to the new frame
+                    // and write the next frame into the buffers
                     if (delta > m_frameDeltaTime)
                     {
+                        m_bufferManager.IncrementActiveBuffer();
 
-                        m_timer.Restart();
-                        m_encoder.incrementFrame();
-                        m_encoder.encodeFrame();
+                        if (!m_bufferManager.Full)
+                        {
+                            m_encoder.incrementFrame();
+                            m_encoder.encodeFrame();
+                            m_encoder.getBuffer(tmp, 0);
+                            m_bufferManager.Write(tmp);
+                        }
 
-                        m_encoder.getBuffer(tmp, 0);
-                        m_circularBuffer.Reset();
-                        //Console.WriteLine("UpdatedFrame");
+                        previousFrame = m_timer.Elapsed.TotalMicroseconds - (delta - m_frameDeltaTime);
                     }
-                    else if (delta < 33)
+                    else if (delta <  m_frameDeltaTime)
                     {
-                        Thread.Sleep(33 - delta);
+                        TimeSpan deltaMs = TimeSpan.FromMicroseconds(delta);
+                        TimeSpan targetDeltaMs = TimeSpan.FromMicroseconds(m_frameDeltaTime);
+                        Thread.Sleep(targetDeltaMs.Milliseconds - deltaMs.Milliseconds);
                     }
-                    m_bufferManager.Write(tmp);
                 }
             });
         }
 
         public int Read(byte[] buffer, int offset, int count)
         {
-            //Console.WriteLine($"Took this long to start getting new frame {m_timer}");
-            //Console.WriteLine(m_currentTC);
-            //Console.WriteLine(m_timer2.ToString());
-            int size = m_circularBuffer.Read(buffer, offset, count);
-            //Console.WriteLine($"Request buffer size = {count}");
-            //Console.WriteLine($"Remaining circ Buffer = {m_circularBuffer.Count}");
+            Buffer.BlockCopy(m_bufferManager.ReadActiveBuffer(count), 0, buffer,0, count);
 
-            if (size == 0) { Console.WriteLine($"BAD: bufSize = {m_circularBuffer.Count}"); }
 
-            return size;
+            //m_encoder.encodeFrame();
+            //m_encoder.getBuffer(buffer, 0);
+            //Console.WriteLine("NEWREAD___________");
+            //StringBuilder sb = new();
+            //foreach (byte b in buffer)
+            //{
+            //    sb.Append($"{b},");
+            //}
+            //sb.AppendLine();
+
+            //File.AppendAllText("frameData.csv", sb.ToString());
+
+            //Console.WriteLine(sb);
+            //m_encoder.incrementFrame();
+
+            return buffer.Length;
         }
 
         public LTCSharpNet.Encoder Encoder
@@ -119,11 +139,25 @@ namespace TestEncoder
 
             for (int i = 0; i <m_bufSize; i++)
             {
+                m_encoder.encodeFrame();
                 m_encoder.getBuffer(tmp, 0);
+
+                m_encoder.incrementFrame();
                 success &= m_bufferManager.Write(tmp);
             }
 
             Debug.Assert(success, "FillBuffers is failing to fill all buffers or overflowing");
+        }
+
+        private async Task WriteUpdatedTCFrame()
+        {
+            await Task.Run(() =>
+            {
+                byte[] tmp = new byte[m_bufSize];
+                m_encoder.incrementFrame();
+                m_encoder.getBuffer(tmp, 0);
+                m_bufferManager.Write(tmp);
+            });
         }
     }
 
@@ -133,10 +167,10 @@ namespace TestEncoder
         {
             int fps = 30;
             var waveOut = new WaveOutEvent() { DeviceNumber = 10 };
-            var encoder = new Source(fps);
             waveOut.DesiredLatency = 40;
+            var encoder = new Source(fps, new LTCSharpNet.Timecode(0, 0, 0, 0));
+
             waveOut.Init(encoder);
-            encoder.SetTimecode(new LTCSharpNet.Timecode(0, 0, 0, 0));
             encoder.StartEncoding();
             waveOut.Play();
 

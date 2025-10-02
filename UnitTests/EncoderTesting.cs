@@ -45,11 +45,11 @@ namespace EncoderTests
         {
 
             TCRingBuffer active = m_bufManager.ActiveBuffer;
-            byte[] firstArray = active.Read(3200, out int tail);
+            byte[] firstArray = active.Read(3200);
 
             Assert.IsTrue(SequentialFrameTesting(firstArray, 0));
 
-            byte[] secondArray = active.Read(300, out tail);
+            byte[] secondArray = active.Read(300);
 
             Assert.IsTrue(SequentialFrameTesting(secondArray, active.Peak()));
 
