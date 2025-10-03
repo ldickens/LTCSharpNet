@@ -15,10 +15,9 @@ namespace TestEncoder
     class Source : IWaveProvider
     {
         LTCSharpNet.Encoder m_encoder;
-        string m_currentTC = "";
         bool m_encoding = false;
         long m_fps = 0;
-        long m_frameDeltaTime = 0;
+        double m_frameDeltaTime = 0;
         Stopwatch m_timer = new();
         private const int m_bufSizeSeconds = 2;
         int m_bufSize; // number of frames stored in buffer
@@ -32,7 +31,7 @@ namespace TestEncoder
             m_fps = fps;
             SetTimecode(startTime);
             m_bufSize = (int)fps * m_bufSizeSeconds; // 
-            m_frameDeltaTime = (1000000 / m_fps); // 1 microsecond / fps
+            m_frameDeltaTime = (TimeSpan.FromSeconds(1).TotalMicroseconds / m_fps); // 1 second in microseconds / fps
             m_bufferManager = new TCFrameBufferManager(m_bufSize);
 
             FillBuffers();
@@ -41,42 +40,30 @@ namespace TestEncoder
         public async void StartEncoding()
         {
             m_timer.Start();
+            double target = m_frameDeltaTime;
 
             await Task.Run(() =>
             {
-
-                double now = m_timer.Elapsed.TotalMicroseconds;
-                double previousFrame = now;
-                double delta = 0;
-                //byte[] curFrame = new byte[m_bufSize];
                 byte[] tmp = new byte[m_frameSizeBytes];
 
                 while (m_encodingTimecode)
                 {
-                    now = m_timer.Elapsed.TotalMicroseconds;
-                    delta = now - previousFrame;
+                    double now = m_timer.Elapsed.TotalMicroseconds;
 
-                    // if deltatime exceeds frametime, update active buffer to the new frame
-                    // and write the next frame into the buffers
-                    if (delta > m_frameDeltaTime)
+                    if (now >= target)
                     {
                         m_bufferManager.IncrementActiveBuffer();
+                        m_encoder.incrementFrame();
+                        m_encoder.encodeFrame();
+                        m_encoder.getBuffer(tmp, 0);
+                        m_bufferManager.Write(tmp);
 
-                        if (!m_bufferManager.Full)
-                        {
-                            m_encoder.incrementFrame();
-                            m_encoder.encodeFrame();
-                            m_encoder.getBuffer(tmp, 0);
-                            m_bufferManager.Write(tmp);
-                        }
+                        target += m_frameDeltaTime;
 
-                        previousFrame = m_timer.Elapsed.TotalMicroseconds - (delta - m_frameDeltaTime);
                     }
-                    else if (delta <  m_frameDeltaTime)
+                    else
                     {
-                        TimeSpan deltaMs = TimeSpan.FromMicroseconds(delta);
-                        TimeSpan targetDeltaMs = TimeSpan.FromMicroseconds(m_frameDeltaTime);
-                        Thread.Sleep(targetDeltaMs.Milliseconds - deltaMs.Milliseconds);
+                        Thread.Sleep(1);
                     }
                 }
             });
@@ -84,23 +71,7 @@ namespace TestEncoder
 
         public int Read(byte[] buffer, int offset, int count)
         {
-            Buffer.BlockCopy(m_bufferManager.ReadActiveBuffer(count), 0, buffer,0, count);
-
-
-            //m_encoder.encodeFrame();
-            //m_encoder.getBuffer(buffer, 0);
-            //Console.WriteLine("NEWREAD___________");
-            //StringBuilder sb = new();
-            //foreach (byte b in buffer)
-            //{
-            //    sb.Append($"{b},");
-            //}
-            //sb.AppendLine();
-
-            //File.AppendAllText("frameData.csv", sb.ToString());
-
-            //Console.WriteLine(sb);
-            //m_encoder.incrementFrame();
+            Buffer.BlockCopy(m_bufferManager.ReadActiveBuffer(count), 0, buffer, 0, count);
 
             return buffer.Length;
         }
@@ -137,27 +108,17 @@ namespace TestEncoder
             bool success = true;
             byte[] tmp = new byte[m_frameSizeBytes];
 
-            for (int i = 0; i <m_bufSize; i++)
+            for (int i = 0; i < m_bufSize; i++)
             {
                 m_encoder.encodeFrame();
                 m_encoder.getBuffer(tmp, 0);
+                Console.WriteLine(m_encoder.getTimecode().ToString());
 
                 m_encoder.incrementFrame();
                 success &= m_bufferManager.Write(tmp);
             }
 
             Debug.Assert(success, "FillBuffers is failing to fill all buffers or overflowing");
-        }
-
-        private async Task WriteUpdatedTCFrame()
-        {
-            await Task.Run(() =>
-            {
-                byte[] tmp = new byte[m_bufSize];
-                m_encoder.incrementFrame();
-                m_encoder.getBuffer(tmp, 0);
-                m_bufferManager.Write(tmp);
-            });
         }
     }
 
